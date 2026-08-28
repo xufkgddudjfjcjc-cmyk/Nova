@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>个人中心 — NOVA</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="user">
+  <header class="topbar">
+    <div class="brand">NOVA</div>
+    <nav class="top-actions">
+      <a class="link-btn" href="index.html">首页</a>
+      <a class="link-btn" href="checkout.html">我的订单</a>
+    </nav>
+  </header>
+
+  <main class="container">
+    <h2>个人中心</h2>
+
+    <section class="profile">
+      <div class="profile-block">
+        <h3>我的收藏</h3>
+        <div id="favoritesList" class="grid"></div>
+      </div>
+
+      <div class="profile-block">
+        <h3>我的订单（模拟）</h3>
+        <div id="ordersList"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">NOVA · 个人中心</div>
+  </footer>
+
+  <script src="data/products.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
