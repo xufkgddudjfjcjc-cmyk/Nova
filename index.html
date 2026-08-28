@@ -2,80 +2,103 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>NOVA — 发现有趣的好物</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>NOVA · 发现有趣商品</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body data-page="home">
+  <!-- SVG icons & decorative gradients -->
+  <svg style="display:none" id="icons" aria-hidden="true">
+    <defs>
+      <linearGradient id="g-accent" x1="0" x2="1">
+        <stop offset="0" stop-color="#8b5cf6"></stop>
+        <stop offset="1" stop-color="#06b6d4"></stop>
+      </linearGradient>
+    </defs>
+    <symbol id="icon-search" viewBox="0 0 24 24"><path fill="currentColor" d="M21 21l-4.35-4.35"></path><circle cx="11" cy="11" r="6" stroke="currentColor" stroke-width="2" fill="none"></circle></symbol>
+    <symbol id="icon-cart" viewBox="0 0 24 24"><path fill="currentColor" d="M6 6h15l-1.5 9h-12z"></path><circle cx="9" cy="20" r="1" fill="currentColor"></circle><circle cx="18" cy="20" r="1" fill="currentColor"></circle></symbol>
+    <symbol id="icon-heart" viewBox="0 0 24 24"><path fill="currentColor" d="M12 21s-8-5.5-8-10.5S7 3 12 7s8-1 8 3.5S12 21 12 21z"/></symbol>
+    <symbol id="icon-user" viewBox="0 0 24 24"><path fill="currentColor" d="M12 12a4 4 0 100-8 4 4 0 000 8z"/><path fill="currentColor" d="M4 20a8 8 0 0116 0"/></symbol>
+    <symbol id="icon-plus" viewBox="0 0 24 24"><path fill="currentColor" d="M11 11V5h2v6h6v2h-6v6h-2v-6H5v-2z"/></symbol>
+  </svg>
+
   <header class="topbar">
-    <div class="brand">NOVA</div>
-    <div class="search-wrap">
-      <input id="searchInput" class="search-input" placeholder="搜索商品或分类..." aria-label="搜索商品"/>
+    <div class="left">
+      <button id="menuBtn" class="icon-btn" aria-label="菜单">☰</button>
+      <div class="brand">NOVA</div>
     </div>
-    <nav class="top-actions">
-      <button id="favBtn" class="icon-btn" title="我的收藏">❤ <span id="favCount" class="badge">0</span></button>
-      <button id="cartBtn" class="icon-btn" title="购物车">🛒 <span id="cartCount" class="badge">0</span></button>
-      <a class="link-btn" href="user.html">个人中心</a>
-    </nav>
+    <div class="search">
+      <input id="searchInput" placeholder="搜索：例如 手账、音乐灯、便携杯" aria-label="搜索商品">
+      <button id="searchClear" class="icon-btn" title="清空">✕</button>
+    </div>
+    <div class="right">
+      <button id="favBtn" class="icon-btn" title="我的收藏"><svg class="icon"><use href="#icon-heart"></use></svg><span id="favCount" class="badge">0</span></button>
+      <button id="cartBtn" class="icon-btn" title="购物车"><svg class="icon"><use href="#icon-cart"></use></svg><span id="cartCount" class="badge">0</span></button>
+      <a id="userLink" class="link" href="user.html" title="个人中心"><svg class="icon"><use href="#icon-user"></use></svg></a>
+    </div>
   </header>
 
-  <main class="container">
+  <main class="main container">
     <section class="hero">
-      <h1>发现有趣生活好物</h1>
-      <p class="subtitle">NOVA 为年轻人精选创意与生活方式商品</p>
-    </section>
-
-    <section class="controls">
-      <div class="categories" id="categories"></div>
-      <div class="sort">
-        <label>排序：
-          <select id="sortSelect">
-            <option value="default">默认</option>
-            <option value="price_asc">价格从低到高</option>
-            <option value="price_desc">价格从高到低</option>
-          </select>
-        </label>
+      <h1>NOVA</h1>
+      <p class="lead">为年轻人精选创意与生活方式好物 · 发现你的下一件心头好</p>
+      <div class="hero-actions">
+        <button id="exploreBtn" class="btn primary">立即发现</button>
       </div>
     </section>
 
-    <section id="productGrid" class="grid" aria-live="polite"></section>
+    <section class="recommend">
+      <h2>今日推荐</h2>
+      <div id="recommendList" class="carousel"></div>
+    </section>
 
-    <div id="emptyState" class="empty hidden">
-      <p>没有找到商品，试试其他关键词或分类。</p>
-    </div>
+    <section class="filters">
+      <div id="categories" class="chips"></div>
+      <div class="sort">
+        <select id="sortSelect" aria-label="排序">
+          <option value="relevance">推荐</option>
+          <option value="price_asc">价格：低 → 高</option>
+          <option value="price_desc">价格：高 → 低</option>
+        </select>
+      </div>
+    </section>
 
+    <section id="productGrid" class="grid"></section>
+
+    <div id="emptyState" class="empty hidden">没有找到相关商品，换个关键词试试吧</div>
   </main>
 
-  <!-- Product Modal -->
+  <!-- product modal -->
   <div id="productModal" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-panel">
-      <button class="modal-close" id="modalClose">✕</button>
-      <div class="modal-body" id="modalBody"></div>
+      <button id="modalClose" class="modal-close" aria-label="关闭">✕</button>
+      <div id="modalContent"></div>
     </div>
   </div>
 
-  <!-- Floating Cart Drawer -->
-  <div id="cartDrawer" class="drawer hidden" aria-hidden="true">
+  <!-- cart drawer -->
+  <aside id="cartDrawer" class="drawer hidden" aria-hidden="true">
     <div class="drawer-header">
       <h3>购物车</h3>
-      <button id="closeCart">✕</button>
+      <button id="closeCart" class="icon-btn">✕</button>
     </div>
     <div id="cartItems" class="drawer-body"></div>
     <div class="drawer-footer">
       <div class="total">合计：¥ <span id="cartTotal">0.00</span></div>
       <div class="drawer-actions">
-        <a href="checkout.html" class="btn primary">去结算</a>
+        <a id="gotoCheckout" class="btn primary" href="checkout.html">去结算</a>
       </div>
     </div>
-  </div>
+  </aside>
 
   <footer class="site-footer">
-    <div class="footer-inner">
+    <div class="container footer-inner">
       <div>NOVA · 发现有趣商品</div>
-      <div><a href="merchant.html">创作者/商家入驻</a></div>
+      <div><a href="merchant.html">创作者 / 商家入驻</a> · <a href="admin.html">商家后台（登录后可用）</a></div>
     </div>
   </footer>
 
+  <script src="db.js"></script>
   <script src="data/products.js"></script>
   <script src="app.js"></script>
 </body>
