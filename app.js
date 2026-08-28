@@ -1,409 +1,601 @@
-/* NOVA 前端轻量 JS：管理商品渲染、搜索、分类、收藏、购物车、结算等功能
-   设计为在多个 HTML 页面复用。所有数据保存在 localStorage（不会联网）。
+/* app.js
+   主前端逻辑：渲染、搜索、分类、cart/fav、本地用户 auth、商家后台管理、订单处理等
 */
 (function(){
-  // utils
-  function qs(sel, root=document){return root.querySelector(sel)}
-  function qsa(sel, root=document){return Array.from(root.querySelectorAll(sel))}
-  function money(n){return Number(n).toFixed(2)}
+  // Utilities
+  const qs = (s,root=document)=> root.querySelector(s)
+  const qsa = (s,root=document)=> Array.from(root.querySelectorAll(s))
+  const money = n => Number(n||0).toFixed(2)
+  const uid = ()=> 'x'+Math.random().toString(36).slice(2,9)
 
   // storage keys
-  const KEY_CART = 'nova_cart_v1'
-  const KEY_FAV = 'nova_fav_v1'
-  const KEY_ORDERS = 'nova_orders_v1'
-  const KEY_MERCHANTS = 'nova_merchants_v1'
-
-  // load products from global
-  const PRODUCTS = window.NOVA_PRODUCTS || []
+  const KEY_SESSION = 'nova_session_v1' // stores {userId}
+  const KEY_CART_PREFIX = 'nova_cart_' // + userId or guest
+  const KEY_FAV_PREFIX = 'nova_fav_'
 
   // state
-  let state = {
-    products: PRODUCTS.slice(),
-    category: '全部',
-    query: '',
-    sort: 'default'
+  let PRODUCTS = []
+  let CATEGORIES = []
+
+  // --- IndexedDB helpers (uses NOVA_DB) ---
+  async function dbInit(){
+    await window.NOVA_DB.init()
+    PRODUCTS = await NOVA_DB.getAll('products') || []
+    CATEGORIES = Array.from(new Set(PRODUCTS.map(p=>p.category))).sort()
+  }
+  async function refreshProducts(){
+    PRODUCTS = await NOVA_DB.getAll('products') || []
+    CATEGORIES = Array.from(new Set(PRODUCTS.map(p=>p.category))).sort()
   }
 
-  // storage helpers
-  const store = {
-    getCart(){ try{return JSON.parse(localStorage.getItem(KEY_CART)||'[]')}catch(e){return []} },
-    setCart(v){ localStorage.setItem(KEY_CART, JSON.stringify(v)) },
-    getFav(){ try{return JSON.parse(localStorage.getItem(KEY_FAV)||'[]')}catch(e){return []} },
-    setFav(v){ localStorage.setItem(KEY_FAV, JSON.stringify(v)) },
-    getOrders(){ try{return JSON.parse(localStorage.getItem(KEY_ORDERS)||'[]')}catch(e){return []} },
-    setOrders(v){ localStorage.setItem(KEY_ORDERS, JSON.stringify(v)) },
-    getMerchants(){ try{return JSON.parse(localStorage.getItem(KEY_MERCHANTS)||'[]')}catch(e){return []} },
-    setMerchants(v){ localStorage.setItem(KEY_MERCHANTS, JSON.stringify(v)) }
+  // --- session & auth ---
+  function getSession(){ try{return JSON.parse(localStorage.getItem(KEY_SESSION)||'null')}catch(e){return null} }
+  function setSession(s){ localStorage.setItem(KEY_SESSION, JSON.stringify(s)) }
+  function clearSession(){ localStorage.removeItem(KEY_SESSION) }
+  async function getCurrentUser(){
+    const s = getSession()
+    if(!s || !s.userId) return null
+    return await NOVA_DB.get('users', s.userId)
   }
 
-  // helpers manipulating cart & fav
-  function addToCart(id, qty=1){
-    const cart = store.getCart()
-    const item = cart.find(i=>i.id===id)
-    if(item) item.qty += qty
-    else cart.push({id, qty})
-    store.setCart(cart)
-    renderCartCount()
-    renderCartDrawer()
-  }
-  function setCartQty(id, qty){
-    let cart = store.getCart()
-    cart = cart.map(i=> i.id===id ? {...i, qty: Math.max(0, qty)} : i).filter(i=>i.qty>0)
-    store.setCart(cart)
-    renderCartCount()
-    renderCartDrawer()
-  }
-  function removeCart(id){
-    let cart = store.getCart().filter(i=>i.id!==id)
-    store.setCart(cart)
-    renderCartCount()
-    renderCartDrawer()
-  }
-  function toggleFav(id){
-    const fav = store.getFav()
-    const idx = fav.indexOf(id)
-    if(idx>=0) fav.splice(idx,1)
-    else fav.push(id)
-    store.setFav(fav)
-    renderFavCount()
+  // simple SHA-256 password hash with subtle crypto
+  async function hashPassword(pwd){
+    const enc = new TextEncoder().encode(pwd)
+    const buf = await crypto.subtle.digest('SHA-256', enc)
+    const hex = Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('')
+    return hex
   }
 
-  // rendering functions
-  function renderCategories(){
-    const cats = ['全部', ...Array.from(new Set(PRODUCTS.map(p=>p.category)))]
-    const wrap = qs('#categories')
-    if(!wrap) return
-    wrap.innerHTML = ''
-    cats.forEach(c=>{
-      const btn = document.createElement('button')
-      btn.textContent = c
-      btn.className = 'cat-btn' + (state.category===c ? ' active' : '')
-      btn.addEventListener('click', ()=>{
-        state.category = c
-        renderCategories()
-        renderProducts()
-      })
-      wrap.appendChild(btn)
-    })
+  async function registerUser(name, password, isMerchant=false){
+    // check existing
+    const all = await NOVA_DB.getAll('users') || []
+    if(all.find(u=>u.name===name)) throw new Error('用户名已被使用')
+    const id = 'u'+Date.now()
+    const passHash = await hashPassword(password)
+    const user = { id, name, passHash, isMerchant, created: new Date().toISOString() }
+    await NOVA_DB.put('users', user)
+    return user
   }
 
-  function filterAndSort(){
-    let results = state.products.slice()
-    if(state.category && state.category!=='全部'){
-      results = results.filter(p=>p.category===state.category)
+  async function loginUser(name, password){
+    const all = await NOVA_DB.getAll('users') || []
+    const passHash = await hashPassword(password)
+    const user = all.find(u=> (u.name===name) && (u.passHash===passHash) )
+    if(!user) throw new Error('用户名或密码错误')
+    setSession({ userId: user.id })
+    return user
+  }
+
+  async function ensureGuestSession(){
+    let s = getSession()
+    if(!s){
+      const guestId = 'g_' + uid()
+      setSession({ userId: guestId, guest:true })
     }
-    if(state.query && state.query.trim()){
-      const q = state.query.trim().toLowerCase()
-      results = results.filter(p=> (p.title+ ' ' + p.desc + ' ' + p.category).toLowerCase().includes(q))
-    }
-    if(state.sort==='price_asc') results.sort((a,b)=>a.price-b.price)
-    if(state.sort==='price_desc') results.sort((a,b)=>b.price-a.price)
-    return results
   }
 
-  function renderProducts(){
-    const grid = qs('#productGrid')
-    if(!grid) return
-    const list = filterAndSort()
-    grid.innerHTML = ''
-    if(list.length===0){
-      qs('#emptyState')?.classList.remove('hidden')
-      return
-    } else {
-      qs('#emptyState')?.classList.add('hidden')
-    }
-    const fav = store.getFav()
-    list.forEach(p=>{
-      const el = document.createElement('article')
-      el.className = 'card'
-      el.innerHTML = `
-        <div class="thumb" style="background:${p.color}">${p.title.split('')[0]||'N'}</div>
-        <div class="body">
-          <h4>${p.title}</h4>
-          <p>${p.desc}</p>
-          <div class="meta">
-            <div>¥ ${money(p.price)}</div>
-            <div>
-              <button class="small-btn fav">${fav.includes(p.id)?'❤':'♡'}</button>
-              <button class="small-btn add">加入购物车</button>
-            </div>
-          </div>
-        </div>
-      `
-      el.querySelector('.add').addEventListener('click', (e)=>{
-        addToCart(p.id,1)
-        e.stopPropagation()
-        animateAdd(el)
-      })
-      el.querySelector('.fav').addEventListener('click', (e)=>{
-        toggleFav(p.id); renderProducts(); e.stopPropagation()
-      })
-      el.addEventListener('click', ()=> openProductModal(p.id))
-      grid.appendChild(el)
-    })
+  // cart & fav per user
+  function cartKeyFor(userId){ return KEY_CART_PREFIX + (userId||'guest') }
+  function favKeyFor(userId){ return KEY_FAV_PREFIX + (userId||'guest') }
+
+  function getCart(userId){
+    try{ return JSON.parse(localStorage.getItem(cartKeyFor(userId))||'[]') }catch(e){return []}
+  }
+  function setCart(userId, cart){ localStorage.setItem(cartKeyFor(userId), JSON.stringify(cart)) }
+  function getFav(userId){
+    try{ return JSON.parse(localStorage.getItem(favKeyFor(userId))||'[]') }catch(e){return []}
+  }
+  function setFav(userId, fav){ localStorage.setItem(favKeyFor(userId), JSON.stringify(fav)) }
+
+  // --- UI Renders common ---
+  function renderCounts(){
+    const s = getSession()
+    const uidv = s?.userId || 'guest'
+    const cartCount = getCart(uidv).reduce((a,b)=>a+b.qty,0)
+    const favCount = getFav(uidv).length
+    qs('#cartCount') && (qs('#cartCount').textContent = cartCount)
+    qs('#favCount') && (qs('#favCount').textContent = favCount)
   }
 
-  function animateAdd(card){
-    card.style.transform = 'translateY(-6px)'
-    setTimeout(()=>card.style.transform='',180)
-  }
-
-  // modal
-  function openProductModal(id){
-    const p = PRODUCTS.find(x=>x.id===id)
-    if(!p) return
-    const modal = qs('#productModal')
-    const body = qs('#modalBody')
-    body.innerHTML = `
-      <div style="display:flex;gap:12px;align-items:flex-start">
-        <div style="width:160px;height:160px;border-radius:12px;background:${p.color};display:flex;align-items:center;justify-content:center;font-size:36px">${p.title[0]}</div>
-        <div style="flex:1">
-          <h3>${p.title}</h3>
-          <p style="color:var(--muted)">${p.desc}</p>
-          <div style="margin-top:10px;font-size:18px">¥ ${money(p.price)}</div>
-          <div style="margin-top:12px;display:flex;gap:8px">
-            <button id="modalFav" class="btn small">收藏</button>
-            <button id="modalAdd" class="btn primary">加入购物车</button>
+  // product card
+  function createProductCard(p){
+    const el = document.createElement('article')
+    el.className = 'card product'
+    el.innerHTML = `
+      <div class="thumb" style="background:${p.color}">${(p.title||'N')[0]}</div>
+      <div style="flex:1">
+        <h4>${p.title}</h4>
+        <p class="muted">${p.desc}</p>
+        <div class="meta">
+          <div>¥ ${money(p.price)}</div>
+          <div>
+            <button class="small-btn favBtn">${isFav(p.id) ? '❤' : '♡'}</button>
+            <button class="small-btn addBtn">加入购物车</button>
           </div>
         </div>
       </div>
     `
-    qs('#modalClose').onclick = closeModal
-    qs('#modalAdd').onclick = ()=>{
-      addToCart(p.id,1)
-      closeModal()
-    }
-    qs('#modalFav').onclick = ()=>{
+    el.querySelector('.addBtn').addEventListener('click', (e)=>{
+      e.stopPropagation()
+      addToCart(p.id, 1)
+      animate(el)
+    })
+    el.querySelector('.favBtn').addEventListener('click', (e)=>{
+      e.stopPropagation()
       toggleFav(p.id)
-      qs('#modalFav').textContent = store.getFav().includes(p.id) ? '已收藏' : '收藏'
-      renderFavCount()
-      renderProducts()
+      el.querySelector('.favBtn').textContent = isFav(p.id) ? '❤' : '♡'
+      renderCounts()
+    })
+    el.addEventListener('click', ()=> openProductModal(p.id))
+    return el
+  }
+
+  function animate(el){
+    el.style.transform = 'translateY(-6px)'
+    setTimeout(()=> el.style.transform = '', 220)
+  }
+
+  // favorites helper
+  function isFav(pid){
+    const s = getSession()
+    const uidv = s?.userId || 'guest'
+    return getFav(uidv).includes(pid)
+  }
+  function toggleFav(pid){
+    const s = getSession()
+    const uidv = s?.userId || 'guest'
+    const fav = getFav(uidv)
+    const idx = fav.indexOf(pid)
+    if(idx>=0) fav.splice(idx,1)
+    else fav.push(pid)
+    setFav(uidv, fav)
+  }
+
+  // cart helpers
+  function addToCart(pid, qty=1){
+    const s = getSession()
+    const uidv = s?.userId || 'guest'
+    const cart = getCart(uidv)
+    const item = cart.find(i=>i.id===pid)
+    if(item) item.qty += qty
+    else cart.push({ id: pid, qty })
+    setCart(uidv, cart)
+    renderCounts()
+  }
+  function setCartQty(pid, qty){
+    const s = getSession()
+    const uidv = s?.userId || 'guest'
+    let cart = getCart(uidv)
+    cart = cart.map(i=> i.id===pid ? {...i, qty: Math.max(0, qty)} : i).filter(i=>i.qty>0)
+    setCart(uidv, cart)
+    renderCounts()
+  }
+  function removeFromCart(pid){
+    const s = getSession()
+    const uidv = s?.userId || 'guest'
+    const cart = getCart(uidv).filter(i=>i.id!==pid)
+    setCart(uidv, cart)
+    renderCounts()
+  }
+
+  // product modal
+  async function openProductModal(pid){
+    const p = await NOVA_DB.get('products', pid)
+    if(!p) return
+    const modal = qs('#productModal')
+    const body = qs('#modalContent')
+    body.innerHTML = `
+      <div style="display:flex;gap:14px;align-items:flex-start">
+        <div style="width:160px;height:160px;border-radius:12px;background:${p.color};display:flex;align-items:center;justify-content:center;font-size:36px">${(p.title||'N')[0]}</div>
+        <div style="flex:1">
+          <h3>${p.title}</h3>
+          <p class="muted">${p.desc}</p>
+          <div style="margin-top:10px;font-size:18px">¥ ${money(p.price)}</div>
+          <div style="margin-top:12px;display:flex;gap:8px;">
+            <button id="modalFavBtn" class="btn">${isFav(p.id)?'已收藏':'收藏'}</button>
+            <button id="modalAddBtn" class="btn primary">加入购物车</button>
+          </div>
+        </div>
+      </div>
+    `
+    qs('#modalClose').onclick = ()=> modal.classList.add('hidden')
+    qs('#modalFavBtn').onclick = ()=>{
+      toggleFav(p.id)
+      qs('#modalFavBtn').textContent = isFav(p.id)?'已收藏':'收藏'
+      renderCounts()
+    }
+    qs('#modalAddBtn').onclick = ()=>{
+      addToCart(p.id,1)
+      modal.classList.add('hidden')
+      renderCounts()
     }
     modal.classList.remove('hidden')
   }
-  function closeModal(){ qs('#productModal')?.classList.add('hidden') }
 
-  // cart drawer
-  function renderCartCount(){
-    const cart = store.getCart()
-    const count = cart.reduce((s,i)=>s+i.qty,0)
-    qs('#cartCount') && (qs('#cartCount').textContent = count)
+  // render home / products
+  async function renderHome(){
+    await refreshProducts()
+    const rec = PRODUCTS.filter(p=>p.featured).slice(0,4)
+    const recWrap = qs('#recommendList')
+    if(recWrap){
+      recWrap.innerHTML = ''
+      rec.forEach(p=>{
+        const card = document.createElement('div')
+        card.className = 'card'
+        card.innerHTML = `<div style="height:140px;border-radius:10px;background:${p.color};display:flex;align-items:center;justify-content:center;font-size:24px">${p.title[0]}</div><h4 style="margin:8px 0 0">${p.title}</h4><p class="muted" style="margin:4px 0">${p.desc}</p>`
+        card.addEventListener('click', ()=> openProductModal(p.id))
+        recWrap.appendChild(card)
+      })
+    }
+
+    // categories
+    const catWrap = qs('#categories')
+    if(catWrap){
+      catWrap.innerHTML = ''
+      const allBtn = document.createElement('button'); allBtn.className='chip active'; allBtn.textContent='全部'; allBtn.dataset.cat='全部'
+      catWrap.appendChild(allBtn)
+      allBtn.addEventListener('click', ()=> { setActiveCategory('全部'); renderProducts() })
+      CATEGORIES.forEach(c=>{
+        const b = document.createElement('button'); b.className='chip'; b.textContent=c; b.dataset.cat=c
+        b.addEventListener('click', ()=> { setActiveCategory(c); renderProducts() })
+        catWrap.appendChild(b)
+      })
+    }
+
+    // product grid: default show all
+    renderProducts()
   }
-  function renderFavCount(){
-    qs('#favCount') && (qs('#favCount').textContent = store.getFav().length)
+
+  // product filters state
+  let activeCategory = '全部'
+  let query = ''
+  let sortMode = 'relevance'
+
+  function setActiveCategory(c){ activeCategory = c
+    qsa('.chip').forEach(btn=> btn.classList.toggle('active', btn.dataset.cat===c || (c==='全部' && btn.dataset.cat===undefined && btn.textContent==='全部')))
   }
-  function renderCartDrawer(){
-    const drawer = qs('#cartDrawer')
-    const itemsWrap = qs('#cartItems')
-    const cart = store.getCart()
-    itemsWrap && (itemsWrap.innerHTML = '')
+
+  async function renderProducts(){
+    await refreshProducts()
+    let list = PRODUCTS.slice()
+
+    // filter category
+    if(activeCategory && activeCategory!=='全部') list = list.filter(p=>p.category===activeCategory)
+    // search
+    if(query && query.trim().length>0){
+      const q = query.toLowerCase()
+      list = list.filter(p=> (p.title + ' ' + p.desc + ' ' + p.category).toLowerCase().includes(q) )
+    }
+    // sort
+    if(sortMode === 'price_asc') list.sort((a,b)=>a.price-b.price)
+    if(sortMode === 'price_desc') list.sort((a,b)=>b.price-a.price)
+    // recommendation: if relevance (default) bring featured first
+    if(sortMode === 'relevance') list.sort((a,b)=> (b.featured?1:0) - (a.featured?1:0))
+
+    const grid = qs('#productGrid')
+    if(!grid) return
+    grid.innerHTML = ''
+    if(list.length===0){ qs('#emptyState')?.classList.remove('hidden'); return } else qs('#emptyState')?.classList.add('hidden')
+    list.forEach(p=> grid.appendChild(createProductCard(p)))
+  }
+
+  // search binding
+  function bindSearch(){
+    const input = qs('#searchInput')
+    const clear = qs('#searchClear')
+    const sortSel = qs('#sortSelect')
+    if(input){
+      input.addEventListener('input', (e)=>{ query = e.target.value; renderProducts() })
+      qs('#exploreBtn')?.addEventListener('click', ()=> { input.focus(); input.value=''; query=''; renderProducts() })
+    }
+    if(clear) clear.addEventListener('click', ()=>{ if(input) input.value=''; query=''; renderProducts() })
+    if(sortSel) sortSel.addEventListener('change', (e)=>{ sortMode = e.target.value; renderProducts() })
+  }
+
+  // cart drawer rendering
+  async function renderCartDrawer(){
+    const s = getSession()
+    const uidv = s?.userId || 'guest'
+    const cartItems = getCart(uidv)
+    const wrap = qs('#cartItems')
     let total = 0
-    cart.forEach(ci=>{
-      const p = PRODUCTS.find(x=>x.id===ci.id)
-      if(!p) return
+    if(!wrap) return
+    wrap.innerHTML = ''
+    for(const ci of cartItems){
+      const p = await NOVA_DB.get('products', ci.id)
+      if(!p) continue
       total += p.price * ci.qty
-      const el = document.createElement('div')
-      el.className = 'checkout-item'
-      el.innerHTML = `
-        <div style="width:56px;height:56px;border-radius:8px;background:${p.color};display:flex;align-items:center;justify-content:center">${p.title[0]}</div>
-        <div class="meta">
-          <div style="display:flex;justify-content:space-between"><div>${p.title}</div><div>¥ ${money(p.price)}</div></div>
-          <div style="margin-top:6px;display:flex;gap:8px;align-items:center">
-            <button class="small-btn dec">-</button>
-            <span class="qty">${ci.qty}</span>
-            <button class="small-btn inc">+</button>
+      const el = document.createElement('div'); el.className = 'checkout-item'; el.innerHTML = `
+        <div style="width:64px;height:64px;border-radius:8px;background:${p.color};display:flex;align-items:center;justify-content:center">${p.title[0]}</div>
+        <div style="flex:1">
+          <div style="display:flex;justify-content:space-between"><strong>${p.title}</strong><div>¥ ${money(p.price)}</div></div>
+          <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+            <button class="small-btn dec">-</button><span class="qty">${ci.qty}</span><button class="small-btn inc">+</button>
             <button class="small-btn remove">删除</button>
           </div>
         </div>
       `
-      el.querySelector('.inc').addEventListener('click', ()=> setCartQty(p.id, ci.qty+1))
-      el.querySelector('.dec').addEventListener('click', ()=> setCartQty(p.id, ci.qty-1))
-      el.querySelector('.remove').addEventListener('click', ()=> removeCart(p.id))
-      itemsWrap.appendChild(el)
-    })
+      el.querySelector('.inc').addEventListener('click', ()=> { setCartQty(p.id, ci.qty+1); renderCartDrawer(); renderCounts() })
+      el.querySelector('.dec').addEventListener('click', ()=> { setCartQty(p.id, ci.qty-1); renderCartDrawer(); renderCounts() })
+      el.querySelector('.remove').addEventListener('click', ()=> { removeFromCart(p.id); renderCartDrawer(); renderCounts() })
+      wrap.appendChild(el)
+    }
     qs('#cartTotal') && (qs('#cartTotal').textContent = money(total))
   }
 
-  // checkout page rendering & actions
-  function renderCheckoutList(){
-    if(!qs('#checkoutList')) return
+  // checkout flow
+  async function renderCheckoutPage(){
     const wrap = qs('#checkoutList')
-    const cart = store.getCart()
-    if(cart.length===0){ wrap.innerHTML = '<div class="empty">购物车为空，去首页挑选好物吧。</div>'; qs('#checkoutTotal').textContent = '0.00'; return }
+    const s = getSession()
+    const uidv = s?.userId || 'guest'
+    if(!wrap) return
+    const cart = getCart(uidv)
+    if(cart.length===0){ wrap.innerHTML = '<div class="empty">购物车为空</div>'; qs('#checkoutTotal').textContent='0.00'; return }
     wrap.innerHTML = ''
-    let total = 0
-    cart.forEach(ci=>{
-      const p = PRODUCTS.find(x=>x.id===ci.id)
-      if(!p) return
+    let total=0
+    for(const ci of cart){
+      const p = await NOVA_DB.get('products', ci.id)
+      if(!p) continue
       total += p.price * ci.qty
-      const el = document.createElement('div')
-      el.className = 'checkout-item'
-      el.innerHTML = `
+      const el = document.createElement('div'); el.className='checkout-item'; el.innerHTML = `
         <div style="width:72px;height:72px;border-radius:8px;background:${p.color};display:flex;align-items:center;justify-content:center">${p.title[0]}</div>
-        <div class="meta">
+        <div style="flex:1">
           <div style="display:flex;justify-content:space-between"><strong>${p.title}</strong><div>¥ ${money(p.price)}</div></div>
-          <div style="margin-top:6px">
-            数量：<button class="small-btn dec">-</button> <span class="qty">${ci.qty}</span> <button class="small-btn inc">+</button>
-            <button class="small-btn remove">删除</button>
-          </div>
+          <div style="margin-top:8px">数量： <button class="small-btn dec">-</button> <span class="qty">${ci.qty}</span> <button class="small-btn inc">+</button> <button class="small-btn remove">删除</button></div>
         </div>
       `
-      el.querySelector('.inc').addEventListener('click', ()=> { setCartQty(p.id, ci.qty+1); renderCheckoutList(); })
-      el.querySelector('.dec').addEventListener('click', ()=> { setCartQty(p.id, ci.qty-1); renderCheckoutList(); })
-      el.querySelector('.remove').addEventListener('click', ()=> { removeCart(p.id); renderCheckoutList(); })
+      el.querySelector('.inc').addEventListener('click', ()=> { setCartQty(p.id, ci.qty+1); renderCheckoutPage(); renderCounts() })
+      el.querySelector('.dec').addEventListener('click', ()=> { setCartQty(p.id, ci.qty-1); renderCheckoutPage(); renderCounts() })
+      el.querySelector('.remove').addEventListener('click', ()=> { removeFromCart(p.id); renderCheckoutPage(); renderCounts() })
       wrap.appendChild(el)
-    })
-    qs('#checkoutTotal').textContent = money(total)
-  }
-
-  function placeOrderSimulated(){
-    const name = qs('#inputName')?.value?.trim()
-    const phone = qs('#inputPhone')?.value?.trim()
-    const addr = qs('#inputAddress')?.value?.trim()
-    if(!name || !phone || !addr){ alert('请填写收货信息（模拟）'); return }
-    const cart = store.getCart()
-    if(cart.length===0){ alert('购物车为空'); return }
-    // build order
-    const items = cart.map(ci=>{
-      const p = PRODUCTS.find(x=>x.id===ci.id)
-      return {id:ci.id, title:p?.title||'未知', price:p?.price||0, qty:ci.qty}
-    })
-    const total = items.reduce((s,i)=>s+i.price*i.qty,0)
-    const orders = store.getOrders()
-    const order = {
-      id: 'o'+Date.now(),
-      created: new Date().toISOString(),
-      customer: {name, phone, addr},
-      items,
-      total
     }
-    orders.unshift(order)
-    store.setOrders(orders)
-    // clear cart
-    store.setCart([])
-    renderCartCount(); renderCartDrawer(); renderCheckoutList()
-    qs('#orderResult').classList.remove('hidden')
-    qs('#orderResult').textContent = '下单成功（模拟），订单号：' + order.id
-  }
-
-  // user page render
-  function renderFavoritesList(){
-    const favWrap = qs('#favoritesList')
-    if(!favWrap) return
-    const fav = store.getFav()
-    if(fav.length===0){ favWrap.innerHTML = '<div class="empty">你还没有收藏任何商品</div>'; return }
-    favWrap.innerHTML = ''
-    fav.forEach(id=>{
-      const p = PRODUCTS.find(x=>x.id===id)
-      if(!p) return
-      const el = document.createElement('article')
-      el.className = 'card'
-      el.innerHTML = `
-        <div class="thumb" style="background:${p.color}">${p.title[0]}</div>
-        <div><h4>${p.title}</h4><p>${p.desc}</p><div class="meta"><div>¥ ${money(p.price)}</div><div><button class="small-btn remove">取消收藏</button></div></div></div>
-      `
-      el.querySelector('.remove').addEventListener('click', ()=>{
-        toggleFav(p.id)
-        renderFavoritesList()
-        renderFavCount()
-      })
-      el.addEventListener('click', ()=> openProductModal(p.id))
-      favWrap.appendChild(el)
+    qs('#checkoutTotal') && (qs('#checkoutTotal').textContent = money(total))
+    qs('#checkoutCommission') && (qs('#checkoutCommission').textContent = money(total*0.05))
+    // place order
+    qs('#placeOrderBtn')?.addEventListener('click', async ()=>{
+      const name = qs('#inputName')?.value?.trim()
+      const phone = qs('#inputPhone')?.value?.trim()
+      const addr = qs('#inputAddress')?.value?.trim()
+      if(!name || !phone || !addr){ alert('请填写收货信息'); return }
+      const cartNow = getCart(uidv)
+      if(cartNow.length===0){ alert('购物车为空'); return }
+      // build order with items and merchantId per item
+      const items = []
+      let total = 0
+      for(const ci of cartNow){
+        const p = await NOVA_DB.get('products', ci.id)
+        if(!p) continue
+        items.push({ id: p.id, title: p.title, price: p.price, qty: ci.qty, merchantId: p.merchantId })
+        total += p.price * ci.qty
+      }
+      const orderId = 'o' + Date.now()
+      const order = { id: orderId, created: new Date().toISOString(), customer:{name,phone,addr,userId: s?.userId||null}, items, total, status:'paid' }
+      await NOVA_DB.put('orders', order)
+      // clear cart
+      setCart(uidv, [])
+      renderCheckoutPage(); renderCartDrawer(); renderCounts()
+      qs('#orderResult').classList.remove('hidden'); qs('#orderResult').textContent = '下单成功（模拟），订单号：' + orderId
     })
   }
 
-  function renderOrdersList(){
-    const w = qs('#ordersList')
-    if(!w) return
-    const orders = store.getOrders()
-    if(orders.length===0){ w.innerHTML = '<div class="empty">暂无订单</div>'; return }
-    w.innerHTML = ''
-    orders.forEach(o=>{
-      const el = document.createElement('div')
-      el.className = 'profile-block'
+  // user page functions
+  async function bindAuth(){
+    const authForm = qs('#authForm')
+    const switchBtn = qs('#switchToRegister')
+    const authTitle = qs('#authTitle')
+    let registerMode = false
+    if(switchBtn) switchBtn.addEventListener('click', ()=> {
+      registerMode = !registerMode
+      authTitle.textContent = registerMode ? '注册新用户' : '登录'
+      qs('#authSubmit').textContent = registerMode ? '注册并登录' : '登录'
+      switchBtn.textContent = registerMode ? '切换到登录' : '注册新用户'
+    })
+    if(authForm) authForm.addEventListener('submit', async (e)=>{
+      e.preventDefault()
+      const name = qs('#authName').value.trim()
+      const pass = qs('#authPassword').value.trim()
+      if(!name || !pass || pass.length < 4) { alert('请输入有效用户名与密码（至少4位）'); return }
+      try{
+        if(registerMode){
+          const user = await registerUser(name, pass, false)
+          setSession({ userId: user.id })
+        } else {
+          await loginUser(name, pass)
+        }
+        setupUserUI()
+      }catch(err){
+        alert(err.message || '操作失败')
+      }
+    })
+    qs('#logoutBtn')?.addEventListener('click', ()=> { clearSession(); setupUserUI() })
+    qs('#logoutBtn2')?.addEventListener('click', ()=> { clearSession(); setupUserUI() })
+  }
+
+  async function setupUserUI(){
+    const profileArea = qs('#profileArea')
+    const authArea = qs('#authArea')
+    const user = await getCurrentUser()
+    if(user && !user.id.startsWith('g_')){ // logged in
+      authArea && (authArea.classList.add('hidden'))
+      profileArea && (profileArea.classList.remove('hidden'))
+      qs('#profileName').textContent = user.name
+      renderFavoritesList()
+      renderOrdersList()
+    } else {
+      profileArea && (profileArea.classList.add('hidden'))
+      authArea && (authArea.classList.remove('hidden'))
+    }
+  }
+
+  async function renderFavoritesList(){
+    const wrap = qs('#favoritesList')
+    if(!wrap) return
+    const s = getSession()
+    const uidv = s?.userId || 'guest'
+    const fav = getFav(uidv)
+    if(fav.length===0){ wrap.innerHTML = '<div class="empty">你还没有收藏任何商品</div>'; return }
+    wrap.innerHTML = ''
+    for(const id of fav){
+      const p = await NOVA_DB.get('products', id)
+      if(!p) continue
+      const el = createProductCard(p)
+      el.querySelector('.favBtn')?.addEventListener('click', ()=> { toggleFav(p.id); renderFavoritesList(); renderCounts() })
+      wrap.appendChild(el)
+    }
+  }
+
+  async function renderOrdersList(){
+    const wrap = qs('#ordersList')
+    if(!wrap) return
+    const s = getSession()
+    const uidv = s?.userId || 'guest'
+    const allOrders = await NOVA_DB.getAll('orders') || []
+    const myOrders = allOrders.filter(o=> o.customer?.userId === uidv )
+    if(myOrders.length===0){ wrap.innerHTML = '<div class="empty">暂无订单</div>'; return }
+    wrap.innerHTML = ''
+    myOrders.forEach(o=>{
+      const el = document.createElement('div'); el.className='profile-block'
       el.innerHTML = `<div style="display:flex;justify-content:space-between"><strong>订单 ${o.id}</strong><span>${(new Date(o.created)).toLocaleString()}</span></div>
         <div>总计：¥ ${money(o.total)}</div>
-        <details style="margin-top:8px">
-          <summary>查看商品</summary>
-          <ul>${o.items.map(i=>`<li>${i.title} × ${i.qty}（¥${money(i.price)}）</li>`).join('')}</ul>
-        </details>
-      `
-      w.appendChild(el)
+        <details style="margin-top:8px"><summary>查看商品</summary><ul>${o.items.map(i=>`<li>${i.title} × ${i.qty}（¥${money(i.price)}）</li>`).join('')}</ul></details>`
+      wrap.appendChild(el)
     })
   }
 
-  // merchant form
-  function handleMerchantForm(){
-    const form = qs('#merchantForm')
+  // merchant apply
+  async function bindMerchantApply(){
+    const form = qs('#merchantApply')
     if(!form) return
-    form.addEventListener('submit',(e)=>{
+    form.addEventListener('submit', async (e)=>{
       e.preventDefault()
       const name = qs('#mName').value.trim()
       const contact = qs('#mContact').value.trim()
-      const phone = qs('#mPhone').value.trim()
+      const info = qs('#mContactInfo').value.trim()
       const desc = qs('#mDesc').value.trim()
-      if(!name||!contact||!phone){ alert('请填写必填项'); return }
-      const apps = store.getMerchants()
-      const app = {id:'m'+Date.now(), name, contact, phone, desc, created: new Date().toISOString(), status:'pending'}
-      apps.unshift(app)
-      store.setMerchants(apps)
-      qs('#merchantResult').classList.remove('hidden')
-      qs('#merchantResult').textContent = '已提交入驻申请（模拟），ID：' + app.id
+      if(!name || !contact) { alert('请填写店铺名和联系人'); return }
+      const id = 'm' + Date.now()
+      await NOVA_DB.put('merchants', { id, name, contact, info, desc, created: new Date().toISOString(), status:'approved' })
+      qs('#applyResult').classList.remove('hidden')
+      qs('#applyResult').textContent = '入驻申请已提交（模拟）并通过，店铺 ID：' + id
       form.reset()
     })
   }
 
-  // initial binding for home page
-  function bindHome(){
-    qs('#searchInput')?.addEventListener('input', (e)=>{
-      state.query = e.target.value
+  // admin / merchant backend
+  async function renderAdmin(){
+    const panel = qs('#adminPanel')
+    const user = await getCurrentUser()
+    if(!user || !user.isMerchant){
+      panel && panel.classList.add('hidden')
+      return
+    }
+    panel && panel.classList.remove('hidden')
+    bindProductForm(user)
+    await renderMerchantProducts(user)
+    await renderMerchantOrders(user)
+  }
+
+  async function bindProductForm(user){
+    const form = qs('#productForm')
+    if(!form) return
+    const idInput = qs('#prodId'), title = qs('#prodTitle'), cat = qs('#prodCategory'), price = qs('#prodPrice'), desc = qs('#prodDesc'), color = qs('#prodColor')
+    qs('#clearForm')?.addEventListener('click', ()=> { idInput.value=''; title.value=''; cat.value=''; price.value=''; desc.value=''; color.value='' })
+    form.addEventListener('submit', async (e)=>{
+      e.preventDefault()
+      const idval = idInput.value || ('p' + Date.now())
+      const obj = { id: idval, title: title.value.trim(), category: cat.value.trim() || '其他', price: Number(price.value||0), desc: desc.value.trim(), color: color.value || '#60a5fa', merchantId: user.id, featured: false }
+      await NOVA_DB.put('products', obj)
+      // refresh products and UI
+      await refreshProducts()
       renderProducts()
+      renderMerchantProducts(user)
+      form.reset()
     })
-    qs('#sortSelect')?.addEventListener('change',(e)=>{
-      state.sort = e.target.value
-      renderProducts()
+  }
+
+  async function renderMerchantProducts(user){
+    const wrap = qs('#merchantProducts')
+    if(!wrap) return
+    const all = await NOVA_DB.getAll('products') || []
+    const mine = all.filter(p=>p.merchantId === user.id)
+    wrap.innerHTML = ''
+    if(mine.length===0){ wrap.innerHTML = '<div class="empty">您还没有商品，使用上方表单添加</div>'; return }
+    mine.forEach(p=>{
+      const el = document.createElement('article'); el.className = 'card product'
+      el.innerHTML = `<div class="thumb" style="background:${p.color}">${p.title[0]}</div><div style="flex:1"><h4>${p.title}</h4><div class="muted">¥ ${money(p.price)}</div><div style="margin-top:8px"><button class="small-btn edit">编辑</button> <button class="small-btn del">删除</button></div></div>`
+      el.querySelector('.edit').addEventListener('click', ()=>{
+        qs('#prodId').value = p.id; qs('#prodTitle').value = p.title; qs('#prodCategory').value = p.category; qs('#prodPrice').value = p.price; qs('#prodDesc').value = p.desc; qs('#prodColor').value = p.color
+        window.scrollTo({top:0,behavior:'smooth'})
+      })
+      el.querySelector('.del').addEventListener('click', async ()=>{
+        if(confirm('确定删除该商品？')){ await NOVA_DB.remove('products', p.id); await refreshProducts(); renderMerchantProducts(user); renderProducts() }
+      })
+      wrap.appendChild(el)
     })
-    qs('#cartBtn')?.addEventListener('click', ()=>{
-      qs('#cartDrawer')?.classList.toggle('hidden')
-      renderCartDrawer()
+  }
+
+  async function renderMerchantOrders(user){
+    const wrap = qs('#merchantOrders')
+    if(!wrap) return
+    const allOrders = await NOVA_DB.getAll('orders') || []
+    const mineOrders = allOrders.filter(o=> o.items.some(i=> i.merchantId === user.id) )
+    if(mineOrders.length===0){ wrap.innerHTML = '<div class="empty">暂无订单涉及到您的商品</div>'; return }
+    wrap.innerHTML = ''
+    mineOrders.forEach(o=>{
+      const relatedItems = o.items.filter(i=> i.merchantId === user.id)
+      const el = document.createElement('div'); el.className='card'
+      el.innerHTML = `<div style="display:flex;justify-content:space-between"><strong>订单 ${o.id}</strong><span>${(new Date(o.created)).toLocaleString()}</span></div>
+        <div>涉及商品总数：${relatedItems.reduce((s,i)=>s+i.qty,0)}</div>
+        <details style="margin-top:8px"><summary>查看商品</summary><ul>${relatedItems.map(i=>`<li>${i.title} × ${i.qty}（¥${money(i.price)}）</li>`).join('')}</ul></details>`
+      wrap.appendChild(el)
     })
+  }
+
+  // page init
+  async function init(){
+    await dbInit()
+    await ensureGuestSession()
+    renderCounts()
+
+    // common bindings
+    qs('#cartBtn')?.addEventListener('click', ()=> { qs('#cartDrawer')?.classList.toggle('hidden'); renderCartDrawer() })
     qs('#closeCart')?.addEventListener('click', ()=> qs('#cartDrawer')?.classList.add('hidden'))
     qs('#favBtn')?.addEventListener('click', ()=> location.href='user.html')
-    qs('#modalClose')?.addEventListener('click', closeModal)
-  }
+    qs('#menuBtn')?.addEventListener('click', ()=> alert('菜单：稍后可扩展'))
+    qs('#userLink')?.addEventListener('click', ()=> {}) // link to user
 
-  // page router
-  function init(){
-    renderCartCount(); renderFavCount()
     const page = document.body.getAttribute('data-page') || 'home'
-    if(page==='home'){
-      renderCategories(); renderProducts(); bindHome()
+    if(page === 'home'){
+      await renderHome()
+      bindSearch()
+      renderCounts()
     }
-    if(page==='checkout'){
-      renderCartCount(); renderCheckoutList()
-      qs('#placeOrderBtn')?.addEventListener('click', placeOrderSimulated)
+    if(page === 'checkout'){
+      await renderCheckoutPage()
+      renderCounts()
     }
-    if(page==='user'){
-      renderFavoritesList(); renderOrdersList()
-      // allow clicking saved favs to open modal
-      document.addEventListener('click', (e)=>{
-        const card = e.target.closest('.card')
-        if(card && card.querySelector('h4')) {
-          const title = card.querySelector('h4').textContent
-          const p = PRODUCTS.find(x=>x.title===title)
-          if(p) openProductModal(p.id)
-        }
-      })
+    if(page === 'user'){
+      await bindAuth()
+      await setupUserUI()
+      renderCounts()
     }
-    if(page==='merchant'){
-      handleMerchantForm()
+    if(page === 'merchant'){
+      await bindMerchantApply()
+      renderCounts()
     }
-    // global behaviors
-    document.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ closeModal(); qs('#cartDrawer')?.classList.add('hidden') } })
-    // make sure cart UI is up to date
-    renderCartDrawer()
+    if(page === 'admin'){
+      await renderAdmin()
+      renderCounts()
+    }
+
+    // keep counts updated on load
+    window.addEventListener('storage', ()=> renderCounts())
   }
 
-  // run
+  // expose some functions for debugging
+  window.NOVA_APP = {
+    addToCart, setCartQty, removeFromCart, renderProducts, openProductModal
+  }
+
   document.addEventListener('DOMContentLoaded', init)
 })();
