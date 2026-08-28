@@ -35,6 +35,8 @@
   async function getCurrentUser(){
     const s = getSession()
     if(!s || !s.userId) return null
+    // 如果是 guest session，直接返回轻量对象，避免去 IndexedDB 查找
+    if(String(s.userId).startsWith('g_')) return { id: s.userId, guest: true }
     return await NOVA_DB.get('users', s.userId)
   }
 
@@ -222,7 +224,7 @@
       rec.forEach(p=>{
         const card = document.createElement('div')
         card.className = 'card'
-        card.innerHTML = `<div style="height:140px;border-radius:10px;background:${p.color};display:flex;align-items:center;justify-content:center;font-size:24px">${p.title[0]}</div><h4 style="margin:8px 0 0">${p.title}</h4><p class="muted" style="margin:4px 0">${p.desc}</p>`
+        card.innerHTML = `<div style="height:140px;border-radius:10px;background:${p.color};display:flex;align-items:center;justify-content:center;font-size:24px">${p.title[0]}</div><h4 style="ma[...]`
         card.addEventListener('click', ()=> openProductModal(p.id))
         recWrap.appendChild(card)
       })
@@ -351,31 +353,37 @@
     }
     qs('#checkoutTotal') && (qs('#checkoutTotal').textContent = money(total))
     qs('#checkoutCommission') && (qs('#checkoutCommission').textContent = money(total*0.05))
-    // place order
-    qs('#placeOrderBtn')?.addEventListener('click', async ()=>{
-      const name = qs('#inputName')?.value?.trim()
-      const phone = qs('#inputPhone')?.value?.trim()
-      const addr = qs('#inputAddress')?.value?.trim()
-      if(!name || !phone || !addr){ alert('请填写收货信息'); return }
-      const cartNow = getCart(uidv)
-      if(cartNow.length===0){ alert('购物车为空'); return }
-      // build order with items and merchantId per item
-      const items = []
-      let total = 0
-      for(const ci of cartNow){
-        const p = await NOVA_DB.get('products', ci.id)
-        if(!p) continue
-        items.push({ id: p.id, title: p.title, price: p.price, qty: ci.qty, merchantId: p.merchantId })
-        total += p.price * ci.qty
-      }
-      const orderId = 'o' + Date.now()
-      const order = { id: orderId, created: new Date().toISOString(), customer:{name,phone,addr,userId: s?.userId||null}, items, total, status:'paid' }
-      await NOVA_DB.put('orders', order)
-      // clear cart
-      setCart(uidv, [])
-      renderCheckoutPage(); renderCartDrawer(); renderCounts()
-      qs('#orderResult').classList.remove('hidden'); qs('#orderResult').textContent = '下单成功（模拟），订单号：' + orderId
-    })
+    // place order: bind safely to avoid duplicate handlers on re-render
+    const placeBtn = qs('#placeOrderBtn')
+    if(placeBtn){
+      // replace node to remove previously attached anonymous listeners, then attach a single handler
+      const newBtn = placeBtn.cloneNode(true)
+      placeBtn.parentNode.replaceChild(newBtn, placeBtn)
+      newBtn.addEventListener('click', async ()=>{
+        const name = qs('#inputName')?.value?.trim()
+        const phone = qs('#inputPhone')?.value?.trim()
+        const addr = qs('#inputAddress')?.value?.trim()
+        if(!name || !phone || !addr){ alert('请填写收货信息'); return }
+        const cartNow = getCart(uidv)
+        if(cartNow.length===0){ alert('购物车为空'); return }
+        // build order with items and merchantId per item
+        const items = []
+        let total = 0
+        for(const ci of cartNow){
+          const p = await NOVA_DB.get('products', ci.id)
+          if(!p) continue
+          items.push({ id: p.id, title: p.title, price: p.price, qty: ci.qty, merchantId: p.merchantId })
+          total += p.price * ci.qty
+        }
+        const orderId = 'o' + Date.now()
+        const order = { id: orderId, created: new Date().toISOString(), customer:{name,phone,addr,userId: s?.userId||null}, items, total, status:'paid' }
+        await NOVA_DB.put('orders', order)
+        // clear cart
+        setCart(uidv, [])
+        renderCheckoutPage(); renderCartDrawer(); renderCounts()
+        qs('#orderResult').classList.remove('hidden'); qs('#orderResult').textContent = '下单成功（模拟），订单号：' + orderId
+      })
+    }
   }
 
   // user page functions
@@ -503,7 +511,7 @@
     form.addEventListener('submit', async (e)=>{
       e.preventDefault()
       const idval = idInput.value || ('p' + Date.now())
-      const obj = { id: idval, title: title.value.trim(), category: cat.value.trim() || '其他', price: Number(price.value||0), desc: desc.value.trim(), color: color.value || '#60a5fa', merchantId: user.id, featured: false }
+      const obj = { id: idval, title: title.value.trim(), category: cat.value.trim() || '其他', price: Number(price.value||0), desc: desc.value.trim(), color: color.value || '#60a5fa', merchantId: user.id }
       await NOVA_DB.put('products', obj)
       // refresh products and UI
       await refreshProducts()
@@ -522,7 +530,7 @@
     if(mine.length===0){ wrap.innerHTML = '<div class="empty">您还没有商品，使用上方表单添加</div>'; return }
     mine.forEach(p=>{
       const el = document.createElement('article'); el.className = 'card product'
-      el.innerHTML = `<div class="thumb" style="background:${p.color}">${p.title[0]}</div><div style="flex:1"><h4>${p.title}</h4><div class="muted">¥ ${money(p.price)}</div><div style="margin-top:8px"><button class="small-btn edit">编辑</button> <button class="small-btn del">删除</button></div></div>`
+      el.innerHTML = `<div class="thumb" style="background:${p.color}">${p.title[0]}</div><div style="flex:1"><h4>${p.title}</h4><div class="muted">¥ ${money(p.price)}</div><div style="margin-to[...]`
       el.querySelector('.edit').addEventListener('click', ()=>{
         qs('#prodId').value = p.id; qs('#prodTitle').value = p.title; qs('#prodCategory').value = p.category; qs('#prodPrice').value = p.price; qs('#prodDesc').value = p.desc; qs('#prodColor').value = p.color
         window.scrollTo({top:0,behavior:'smooth'})
