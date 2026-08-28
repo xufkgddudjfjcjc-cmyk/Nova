@@ -1,40 +1,59 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8" />
+  <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>个人中心 — NOVA</title>
+  <title>个人中心 · NOVA</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body data-page="user">
   <header class="topbar">
-    <div class="brand">NOVA</div>
-    <nav class="top-actions">
-      <a class="link-btn" href="index.html">首页</a>
-      <a class="link-btn" href="checkout.html">我的订单</a>
-    </nav>
+    <div class="left">
+      <a href="index.html" class="link">← 首页</a>
+      <div class="brand">NOVA</div>
+    </div>
+    <div class="right">
+      <a id="logoutBtn" class="link" href="#">退出</a>
+    </div>
   </header>
 
-  <main class="container">
-    <h2>个人中心</h2>
+  <main class="container narrow">
+    <div id="authArea" class="card">
+      <h2 id="authTitle">登录 / 注册</h2>
+      <form id="authForm" class="form">
+        <label>邮箱或用户名 <input id="authName" required placeholder="用户名或邮箱"></label>
+        <label>密码 <input id="authPassword" type="password" required placeholder="至少 6 位"></label>
+        <div class="row">
+          <button type="submit" id="authSubmit" class="btn primary">登录</button>
+          <button type="button" id="switchToRegister" class="btn">注册新用户</button>
+        </div>
+      </form>
+    </div>
 
-    <section class="profile">
-      <div class="profile-block">
+    <div id="profileArea" class="hidden">
+      <div class="card">
+        <h3>欢迎，<span id="profileName"></span></h3>
+        <p class="muted">在个人中心可以查看收藏、订单与资料（本地模拟）</p>
+      </div>
+
+      <div class="card">
         <h3>我的收藏</h3>
         <div id="favoritesList" class="grid"></div>
       </div>
 
-      <div class="profile-block">
-        <h3>我的订单（模拟）</h3>
+      <div class="card">
+        <h3>我的订单</h3>
         <div id="ordersList"></div>
       </div>
-    </section>
+
+      <div class="card">
+        <h3>账户操作</h3>
+        <button id="logoutBtn2" class="btn">退出登录</button>
+      </div>
+    </div>
   </main>
 
-  <footer class="site-footer">
-    <div class="footer-inner">NOVA · 个人中心</div>
-  </footer>
-
+  <script src="db.js"></script>
   <script src="data/products.js"></script>
   <script src="app.js"></script>
 </body>
