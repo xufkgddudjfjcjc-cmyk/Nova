@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>商家后台 · NOVA</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="admin">
+  <header class="topbar">
+    <div class="left"><a href="index.html" class="link">← 首页</a><div class="brand">NOVA 后台</div></div>
+    <div class="right">
+      <a href="merchant.html" class="link">入驻</a>
+      <a href="user.html" class="link">个人中心</a>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="card">
+      <h2>商家后台（本地模拟）</h2>
+      <p class="muted">请先在个人中心登录成为商家账户（注册并设置为商家），然后在此管理商品与查看订单。</p>
+    </section>
+
+    <section id="adminPanel" class="hidden">
+      <div class="card">
+        <h3>商品管理</h3>
+        <form id="productForm" class="form">
+          <input id="prodId" type="hidden">
+          <label>商品名称 <input id="prodTitle" required></label>
+          <label>分类 <input id="prodCategory" required placeholder="例如：生活、文具"></label>
+          <label>价格（元） <input id="prodPrice" type="number" required min="0" step="0.01"></label>
+          <label>描述 <textarea id="prodDesc" rows="3"></textarea></label>
+          <label>主色（HEX） <input id="prodColor" placeholder="#60a5fa"></label>
+          <div class="row">
+            <button type="submit" class="btn primary">保存商品</button>
+            <button type="button" id="clearForm" class="btn">清空</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h3>我的商品</h3>
+        <div id="merchantProducts" class="grid"></div>
+      </div>
+
+      <div class="card">
+        <h3>订单（包含我的商品）</h3>
+        <div id="merchantOrders"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="db.js"></script>
+  <script src="data/products.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
