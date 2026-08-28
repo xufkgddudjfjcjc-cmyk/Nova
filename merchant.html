@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>创作者/商家入驻 — NOVA</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="merchant">
+  <header class="topbar">
+    <div class="brand">NOVA</div>
+    <nav class="top-actions">
+      <a class="link-btn" href="index.html">首页</a>
+      <a class="link-btn" href="user.html">个人中心</a>
+    </nav>
+  </header>
+
+  <main class="container narrow">
+    <h2>创作者 / 商家入驻</h2>
+    <p>欢迎创作者与小商家入驻 NOVA！填写信息后我们会模拟审核（本地存储）。</p>
+
+    <form id="merchantForm" class="form">
+      <label>店铺名称<input id="mName" required placeholder="店铺 / 创作者 名称"></label>
+      <label>联系人<input id="mContact" required placeholder="联系人"></label>
+      <label>联系方式<input id="mPhone" required placeholder="手机号或邮箱"></label>
+      <label>店铺简介<textarea id="mDesc" rows="4" placeholder="一句话介绍你的风格"></textarea></label>
+      <button type="submit" class="btn primary">提交入驻申请</button>
+    </form>
+
+    <div id="merchantResult" class="order-result hidden"></div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">NOVA · 入驻申请（模拟）</div>
+  </footer>
+
+  <script src="data/products.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
