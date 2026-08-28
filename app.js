@@ -447,7 +447,7 @@
       const p = await NOVA_DB.get('products', id)
       if(!p) continue
       const el = createProductCard(p)
-      el.querySelector('.favBtn')?.addEventListener('click', ()=> { toggleFav(p.id); renderFavoritesList(); renderCounts() })
+      // createProductCard 已绑定 fav/add 按钮，不再额外绑定以避免重复监听
       wrap.appendChild(el)
     }
   }
