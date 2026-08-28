@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>结算 — NOVA</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="checkout">
+  <header class="topbar">
+    <div class="brand">NOVA</div>
+    <nav class="top-actions">
+      <a class="link-btn" href="index.html">首页</a>
+      <a class="link-btn" href="user.html">个人中心</a>
+    </nav>
+  </header>
+
+  <main class="container narrow">
+    <h2>模拟结算</h2>
+
+    <section id="checkoutList" class="checkout-list"></section>
+
+    <section class="checkout-form">
+      <h3>收货信息（模拟）</h3>
+      <label>姓名 <input id="inputName" type="text" placeholder="收货人姓名"></label>
+      <label>手机号 <input id="inputPhone" type="text" placeholder="手机号"></label>
+      <label>地址 <input id="inputAddress" type="text" placeholder="详细地址"></label>
+      <div class="checkout-total">总计：¥ <span id="checkoutTotal">0.00</span></div>
+      <button id="placeOrderBtn" class="btn primary">确认下单（模拟）</button>
+    </section>
+
+    <div id="orderResult" class="order-result hidden"></div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">NOVA · 模拟结算页</div>
+  </footer>
+
+  <script src="data/products.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
