@@ -1,39 +1,36 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8" />
+  <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>创作者/商家入驻 — NOVA</title>
+  <title>创作者 / 商家入驻 · NOVA</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body data-page="merchant">
   <header class="topbar">
-    <div class="brand">NOVA</div>
-    <nav class="top-actions">
-      <a class="link-btn" href="index.html">首页</a>
-      <a class="link-btn" href="user.html">个人中心</a>
-    </nav>
+    <div class="left"><a href="index.html" class="link">← 返回</a><div class="brand">NOVA</div></div>
+    <div class="right"><a href="user.html" class="link">个人中心</a></div>
   </header>
 
   <main class="container narrow">
-    <h2>创作者 / 商家入驻</h2>
-    <p>欢迎创作者与小商家入驻 NOVA！填写信息后我们会模拟审核（本地存储）。</p>
+    <h2>创作者 / 商家入驻（模拟）</h2>
+    <p class="muted">提交入驻后你可以登录并使用商家后台管理商品与查看订单（均为本地模拟）</p>
 
-    <form id="merchantForm" class="form">
-      <label>店铺名称<input id="mName" required placeholder="店铺 / 创作者 名称"></label>
-      <label>联系人<input id="mContact" required placeholder="联系人"></label>
-      <label>联系方式<input id="mPhone" required placeholder="手机号或邮箱"></label>
-      <label>店铺简介<textarea id="mDesc" rows="4" placeholder="一句话介绍你的风格"></textarea></label>
-      <button type="submit" class="btn primary">提交入驻申请</button>
+    <form id="merchantApply" class="card form">
+      <label>店铺 / 创作者 名称 <input id="mName" required></label>
+      <label>联系人 <input id="mContact" required></label>
+      <label>联系方式 <input id="mContactInfo"></label>
+      <label>简介 <textarea id="mDesc" rows="3"></textarea></label>
+      <div class="row">
+        <button type="submit" class="btn primary">提交入驻申请</button>
+        <a id="goAdmin" href="admin.html" class="btn">商家后台</a>
+      </div>
     </form>
 
-    <div id="merchantResult" class="order-result hidden"></div>
+    <div id="applyResult" class="order-result hidden"></div>
   </main>
 
-  <footer class="site-footer">
-    <div class="footer-inner">NOVA · 入驻申请（模拟）</div>
-  </footer>
-
+  <script src="db.js"></script>
   <script src="data/products.js"></script>
   <script src="app.js"></script>
 </body>
