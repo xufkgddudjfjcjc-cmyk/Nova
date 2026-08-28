@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>NOVA — 发现有趣的好物</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="home">
+  <header class="topbar">
+    <div class="brand">NOVA</div>
+    <div class="search-wrap">
+      <input id="searchInput" class="search-input" placeholder="搜索商品或分类..." aria-label="搜索商品"/>
+    </div>
+    <nav class="top-actions">
+      <button id="favBtn" class="icon-btn" title="我的收藏">❤ <span id="favCount" class="badge">0</span></button>
+      <button id="cartBtn" class="icon-btn" title="购物车">🛒 <span id="cartCount" class="badge">0</span></button>
+      <a class="link-btn" href="user.html">个人中心</a>
+    </nav>
+  </header>
+
+  <main class="container">
+    <section class="hero">
+      <h1>发现有趣生活好物</h1>
+      <p class="subtitle">NOVA 为年轻人精选创意与生活方式商品</p>
+    </section>
+
+    <section class="controls">
+      <div class="categories" id="categories"></div>
+      <div class="sort">
+        <label>排序：
+          <select id="sortSelect">
+            <option value="default">默认</option>
+            <option value="price_asc">价格从低到高</option>
+            <option value="price_desc">价格从高到低</option>
+          </select>
+        </label>
+      </div>
+    </section>
+
+    <section id="productGrid" class="grid" aria-live="polite"></section>
+
+    <div id="emptyState" class="empty hidden">
+      <p>没有找到商品，试试其他关键词或分类。</p>
+    </div>
+
+  </main>
+
+  <!-- Product Modal -->
+  <div id="productModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-panel">
+      <button class="modal-close" id="modalClose">✕</button>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+  <!-- Floating Cart Drawer -->
+  <div id="cartDrawer" class="drawer hidden" aria-hidden="true">
+    <div class="drawer-header">
+      <h3>购物车</h3>
+      <button id="closeCart">✕</button>
+    </div>
+    <div id="cartItems" class="drawer-body"></div>
+    <div class="drawer-footer">
+      <div class="total">合计：¥ <span id="cartTotal">0.00</span></div>
+      <div class="drawer-actions">
+        <a href="checkout.html" class="btn primary">去结算</a>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <div>NOVA · 发现有趣商品</div>
+      <div><a href="merchant.html">创作者/商家入驻</a></div>
+    </div>
+  </footer>
+
+  <script src="data/products.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
